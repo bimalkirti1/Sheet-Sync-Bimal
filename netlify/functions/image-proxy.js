@@ -1,113 +1,82 @@
-const https = require('https');
-const http = require('http');
-const url = require('url');
+const fetch = require('node-fetch');
 
-exports.handler = async function(event) {
-  // Get the image URL from the request
-  const imageUrl = event.queryStringParameters.url;
+exports.handler = async function(event, context) {
+  // Enable CORS for all origins
+  const headers = {
+    'Access-Control-Allow-Origin': '*',
+    'Access-Control-Allow-Headers': 'Content-Type',
+    'Access-Control-Allow-Methods': 'GET, OPTIONS'
+  };
   
-  if (!imageUrl) {
+  // Handle OPTIONS requests (CORS preflight)
+  if (event.httpMethod === 'OPTIONS') {
     return {
-      statusCode: 400,
-      body: JSON.stringify({ error: "Missing URL parameter" })
+      statusCode: 200,
+      headers
     };
   }
-
-  console.log("Fetching image from:", imageUrl);
   
   try {
-    // Parse the URL
-    const parsedUrl = new URL(imageUrl);
+    // Get image URL from query parameter
+    const imageUrl = event.queryStringParameters.url;
     
-    // Options for the HTTP request
-    const options = {
-      hostname: parsedUrl.hostname,
-      path: parsedUrl.pathname + parsedUrl.search,
-      method: 'GET',
+    if (!imageUrl) {
+      return {
+        statusCode: 400,
+        headers,
+        body: JSON.stringify({ error: 'Missing URL parameter' })
+      };
+    }
+    
+    console.log(`Proxying request to: ${imageUrl}`);
+    
+    // Fetch the image
+    const response = await fetch(imageUrl, {
       headers: {
+        // Pretend to be a browser to avoid some server restrictions
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       }
-    };
-
-    // Create a promise to fetch the image
-    const response = await new Promise((resolve, reject) => {
-      // Choose http or https module based on URL
-      const requestModule = parsedUrl.protocol === 'https:' ? https : http;
-      
-      const req = requestModule.request(options, (res) => {
-        // Handle redirects (status codes 301, 302, 307)
-        if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) {
-          // Return the redirect URL for handling
-          resolve({
-            statusCode: 302,
-            headers: {
-              'Location': event.queryStringParameters.url = res.headers.location
-            },
-            body: ''
-          });
-          return;
-        }
-        
-        if (res.statusCode !== 200) {
-          resolve({
-            statusCode: res.statusCode,
-            body: JSON.stringify({ error: `Failed to load image: ${res.statusMessage}` })
-          });
-          return;
-        }
-        
-        // Get content type for headers
-        const contentType = res.headers['content-type'] || 'image/jpeg';
-        
-        // Collect data chunks
-        const chunks = [];
-        res.on('data', (chunk) => chunks.push(chunk));
-        
-        res.on('end', () => {
-          // Combine chunks into one buffer
-          const buffer = Buffer.concat(chunks);
-          
-          // Return image with appropriate headers
-          resolve({
-            statusCode: 200,
-            headers: {
-              'Content-Type': contentType,
-              'Access-Control-Allow-Origin': '*',
-              'Cache-Control': 'public, max-age=86400'
-            },
-            body: buffer.toString('base64'),
-            isBase64Encoded: true
-          });
-        });
-      });
-      
-      req.on('error', (err) => {
-        console.error("Request error:", err);
-        resolve({
-          statusCode: 500,
-          body: JSON.stringify({ error: `Server error: ${err.message}` })
-        });
-      });
-      
-      // Set a timeout (10 seconds)
-      req.setTimeout(10000, () => {
-        req.abort();
-        resolve({
-          statusCode: 504,
-          body: JSON.stringify({ error: "Request timeout" })
-        });
-      });
-      
-      req.end();
     });
     
-    return response;
+    if (!response.ok) {
+      return {
+        statusCode: response.status,
+        headers,
+        body: JSON.stringify({ error: `Failed to fetch image: ${response.statusText}` })
+      };
+    }
     
+    // Get image data as buffer
+    const imageBuffer = await response.buffer();
+    
+    // Get content type from response or infer from URL
+    let contentType = response.headers.get('content-type');
+    if (!contentType || contentType === 'application/octet-stream') {
+      if (imageUrl.match(/\.jpe?g$/i)) contentType = 'image/jpeg';
+      else if (imageUrl.match(/\.png$/i)) contentType = 'image/png';
+      else if (imageUrl.match(/\.gif$/i)) contentType = 'image/gif';
+      else if (imageUrl.match(/\.webp$/i)) contentType = 'image/webp';
+      else if (imageUrl.match(/\.svg$/i)) contentType = 'image/svg+xml';
+      else contentType = 'image/jpeg'; // Default
+    }
+    
+    // Return the image with appropriate headers
+    return {
+      statusCode: 200,
+      headers: {
+        ...headers,
+        'Content-Type': contentType,
+        'Cache-Control': 'public, max-age=86400' // Cache for 24 hours
+      },
+      isBase64Encoded: true,
+      body: imageBuffer.toString('base64')
+    };
   } catch (error) {
-    console.error("Error in handler:", error);
+    console.log('Error:', error);
     return {
       statusCode: 500,
-      body: JSON.stringify({ error: `Error: ${error.message}` })
+      headers,
+      body: JSON.stringify({ error: `Server error: ${error.message}` })
     };
   }
 };

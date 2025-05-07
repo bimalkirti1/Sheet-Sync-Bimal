@@ -1,45 +1,70 @@
-const fetch = require('node-fetch');
+const https = require('https');
+const http = require('http');
 
 exports.handler = async function(event) {
-  try {
-    // Get the image URL from the request
-    const imageUrl = event.queryStringParameters.url;
-    
-    if (!imageUrl) {
-      return {
-        statusCode: 400,
-        body: "Missing URL parameter"
-      };
-    }
-
-    // Fetch the image
-    const response = await fetch(imageUrl);
-    
-    if (!response.ok) {
-      return {
-        statusCode: response.status,
-        body: `Error fetching image: ${response.statusText}`
-      };
-    }
-    
-    // Get image as buffer
-    const buffer = await response.buffer();
-    
-    // Return the image with appropriate headers
+  // Get the image URL from the request
+  const imageUrl = event.queryStringParameters.url;
+  
+  if (!imageUrl) {
     return {
-      statusCode: 200,
-      headers: {
-        'Content-Type': response.headers.get('content-type'),
-        'Access-Control-Allow-Origin': '*',
-        'Cache-Control': 'public, max-age=86400'
-      },
-      body: buffer.toString('base64'),
-      isBase64Encoded: true
-    };
-  } catch (error) {
-    return {
-      statusCode: 500,
-      body: `Server error: ${error.message}`
+      statusCode: 400,
+      body: JSON.stringify({ error: "Missing URL parameter" })
     };
   }
+
+  // Choose http or https module based on URL
+  const client = imageUrl.startsWith('https') ? https : http;
+
+  // Create a promise to fetch the image
+  return new Promise((resolve, reject) => {
+    const request = client.get(imageUrl, (response) => {
+      if (response.statusCode !== 200) {
+        resolve({
+          statusCode: response.statusCode,
+          body: JSON.stringify({ error: `Failed to load image: ${response.statusMessage}` })
+        });
+        return;
+      }
+      
+      // Get content type for headers
+      const contentType = response.headers['content-type'] || 'image/jpeg';
+      
+      // Collect data chunks
+      const chunks = [];
+      response.on('data', (chunk) => chunks.push(chunk));
+      
+      response.on('end', () => {
+        // Combine chunks into one buffer
+        const buffer = Buffer.concat(chunks);
+        
+        // Return image with appropriate headers
+        resolve({
+          statusCode: 200,
+          headers: {
+            'Content-Type': contentType,
+            'Access-Control-Allow-Origin': '*',
+            'Cache-Control': 'public, max-age=86400'
+          },
+          body: buffer.toString('base64'),
+          isBase64Encoded: true
+        });
+      });
+    });
+    
+    request.on('error', (err) => {
+      resolve({
+        statusCode: 500,
+        body: JSON.stringify({ error: `Server error: ${err.message}` })
+      });
+    });
+    
+    // Set a timeout (10 seconds)
+    request.setTimeout(10000, () => {
+      request.abort();
+      resolve({
+        statusCode: 504,
+        body: JSON.stringify({ error: "Request timeout" })
+      });
+    });
+  });
 };

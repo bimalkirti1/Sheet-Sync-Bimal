@@ -1,5 +1,3 @@
-const fetch = require('node-fetch');
-
 exports.handler = async function(event, context) {
   // Enable CORS for all origins
   const headers = {
@@ -28,12 +26,9 @@ exports.handler = async function(event, context) {
       };
     }
     
-    console.log(`Proxying request to: ${imageUrl}`);
-    
-    // Fetch the image
+    // We'll use fetch which is available in Netlify Functions by default
     const response = await fetch(imageUrl, {
       headers: {
-        // Pretend to be a browser to avoid some server restrictions
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
       }
     });
@@ -46,10 +41,11 @@ exports.handler = async function(event, context) {
       };
     }
     
-    // Get image data as buffer
-    const imageBuffer = await response.buffer();
+    // Get image data
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
     
-    // Get content type from response or infer from URL
+    // Get content type
     let contentType = response.headers.get('content-type');
     if (!contentType || contentType === 'application/octet-stream') {
       if (imageUrl.match(/\.jpe?g$/i)) contentType = 'image/jpeg';
@@ -60,16 +56,16 @@ exports.handler = async function(event, context) {
       else contentType = 'image/jpeg'; // Default
     }
     
-    // Return the image with appropriate headers
+    // Return the image
     return {
       statusCode: 200,
       headers: {
         ...headers,
         'Content-Type': contentType,
-        'Cache-Control': 'public, max-age=86400' // Cache for 24 hours
+        'Cache-Control': 'public, max-age=86400'
       },
       isBase64Encoded: true,
-      body: imageBuffer.toString('base64')
+      body: buffer.toString('base64')
     };
   } catch (error) {
     console.log('Error:', error);
@@ -80,3 +76,4 @@ exports.handler = async function(event, context) {
     };
   }
 };
+      

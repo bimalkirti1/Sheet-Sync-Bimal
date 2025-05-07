@@ -26,7 +26,9 @@ exports.handler = async function(event, context) {
       };
     }
     
-    // We'll use fetch which is available in Netlify Functions by default
+    console.log(`Attempting to fetch: ${imageUrl}`);
+    
+    // Use fetch which is available in Netlify Functions environment
     const response = await fetch(imageUrl, {
       headers: {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
@@ -34,6 +36,7 @@ exports.handler = async function(event, context) {
     });
     
     if (!response.ok) {
+      console.log(`Error status: ${response.status} ${response.statusText}`);
       return {
         statusCode: response.status,
         headers,
@@ -47,6 +50,8 @@ exports.handler = async function(event, context) {
     
     // Get content type
     let contentType = response.headers.get('content-type');
+    console.log(`Content-Type from response: ${contentType}`);
+    
     if (!contentType || contentType === 'application/octet-stream') {
       if (imageUrl.match(/\.jpe?g$/i)) contentType = 'image/jpeg';
       else if (imageUrl.match(/\.png$/i)) contentType = 'image/png';
@@ -55,6 +60,8 @@ exports.handler = async function(event, context) {
       else if (imageUrl.match(/\.svg$/i)) contentType = 'image/svg+xml';
       else contentType = 'image/jpeg'; // Default
     }
+    
+    console.log(`Returning image with Content-Type: ${contentType}, size: ${buffer.length} bytes`);
     
     // Return the image
     return {
@@ -68,7 +75,7 @@ exports.handler = async function(event, context) {
       body: buffer.toString('base64')
     };
   } catch (error) {
-    console.log('Error:', error);
+    console.log(`Error: ${error.message}`);
     return {
       statusCode: 500,
       headers,
@@ -76,4 +83,3 @@ exports.handler = async function(event, context) {
     };
   }
 };
-      
